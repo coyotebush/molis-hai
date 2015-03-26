@@ -43,6 +43,11 @@
                       (loop (rotate chars next)
                             remaining))])))
 
+(define (count-hash->seed-chooser/freq starts-with-space? count-hash)
+  (define key-count-hash (count-hash->n-gram-counts count-hash))
+  (for/hash ([(k v) (in-hash key-count-hash)]
+             #:when (starts-with-space? k))
+    (values k v)))
 
 ;; given a count-hash, return a huffman tree for choosing a seed (an n-gram
 ;; starting with a space)

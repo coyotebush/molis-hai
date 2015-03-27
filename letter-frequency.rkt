@@ -127,27 +127,19 @@
 
 (define ENTROPY-BITS 56)
 
-;; like foldl on one list, but stops when the return value passes the test
-(define (fold/until test proc init lst)
-  (if (test init)
-      init
-      (fold/until test proc
-                  (proc (first lst) init)
-                  (rest lst))))
+;; select a value from a list of (value, weight) pairs
+(define (freq-index freq-list index)
+  (if (< index (cdr (first freq-list)))
+      (car (first freq-list))
+      (freq-index (rest freq-list)
+                  (- index (cdr (first freq-list))))))
 
-(check-equal? (fold/until (lambda (lst) (= (foldl + 0 lst) 10))
-                          cons
-                          empty
-                          (range 17))
-              (list 4 3 2 1 0))
+(check-equal? (freq-index (list (cons "a" 3) (cons "b" 5)) 2) "a")
+(check-equal? (freq-index (list (cons "a" 3) (cons "b" 5)) 3) "b")
 
 ;; pick a key from a hash, weighted by value
 (define (pick/freq freqs)
-  (define point (random (foldl + 0 (hash-values freqs))))
-  (car (fold/until (lambda (acc) (< point (cdr acc)))
-                   (lambda (entry acc) (cons (car entry) (+ (cdr entry) (cdr acc))))
-                   (cons "banana" 0)
-                   (hash->list freqs))))
+  (freq-index (hash->list freqs) (random (foldl + 0 (hash-values freqs)))))
 
 (check-equal? (pick/freq (hash "b" 0 "a" 3 "c" 0)) "a")
 
@@ -158,26 +150,26 @@
 
 (check-= (entropy/freq "a" (hash "a" 2 "b" 3)) 1.32 0.01)
 
+;; generate a password string using the frequencies directly
+(define (make-pwd-str/freq count-hash)
+  (define seed-choices (count-hash->seed-chooser/freq starts-with-space? count-hash))
+  (define seed (pick/freq seed-choices))
+  (let loop ([chars seed]
+             [result seed]
+             [remaining (- ENTROPY-BITS (entropy/freq seed seed-choices))])
+    (if (<= remaining 0)
+        result
+        (let* ([choices (hash-ref count-hash chars)]
+               [next (pick/freq choices)])
+          (loop (string-rotate chars next)
+                (string-append result (string next))
+                (- remaining (entropy/freq next choices)))))))
+
 ;; generate a password string, using a seed chosen from the tree-hash
 (define (make-pwd-str/noseed seed-huff-tree tree-hash)
   (sequence->string
    (generate-char-sequence/noseed seed-huff-tree (make-bools-list ENTROPY-BITS)
                                   tree-hash)))
-
-;; generate a password string using the frequencies directly
-(define (make-pwd-str/freq count-hash)
-  (define seed-choices (count-hash->seed-chooser/freq starts-with-space? count-hash))
-  (define seed (pick/freq seed-choices))
-  (car (fold/until
-        (lambda (acc) (<= ENTROPY-BITS (cdr acc)))
-        (lambda (n acc)
-          (define choices (hash-ref count-hash
-                                    (substring (car acc) (- (string-length (car acc)) (string-length seed)))))
-          (define next (pick/freq choices))
-          (cons (string-append (car acc) (list->string (list next)))
-                (+ (cdr acc) (entropy/freq next choices))))
-        (cons seed (entropy/freq seed seed-choices))
-        (range 100))))
 
 ;; generate a password string with the required number of bits of entropy
 (define (make-pwd-str seed tree-hash)
